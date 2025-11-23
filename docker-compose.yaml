@@ -1,0 +1,33 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - 80:80
+    env_file:
+      - /backend/.env
+    depends_on:
+      - db
+  
+  frontend:
+    build: ./frontend
+    ports:
+      - 5173:5173
+    env_file:
+      - /frontend/.env
+    depends_on:
+      - backend
+    
+  db:
+    image: postgres:17
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=chat_bot
+    ports:
+      - 5432:5432
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./database/amazon_data.sql:/docker-entrypoint-initdb.d/amazon_data.sql:ro
+
+volumes:
+  db_data:
