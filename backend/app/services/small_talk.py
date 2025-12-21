@@ -33,7 +33,7 @@ class SmallTalkService:
         )
 
         return response.choices[0].message.content.strip()
-      
+
 # if __name__ == "__main__":
 #     small_talk_service = SmallTalkService()
 #     user_input = "Hi there! How's it going?"

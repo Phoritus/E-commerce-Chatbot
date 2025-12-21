@@ -21,7 +21,11 @@ const CHAT_STORAGE_KEY = "chat_history_v1";
 
 const formatTime = (ts: number) => {
   const d = new Date(ts);
-  return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString("en-US", { 
+    hour: "2-digit", 
+    minute: "2-digit", 
+    timeZone: "Asia/Bangkok"
+  });
 };
 
 export default function App() {

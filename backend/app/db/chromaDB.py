@@ -21,4 +21,3 @@ try:
     )
 except Exception as e:
     logger.warning(f"ChromaDB not initialized: {e}. Proceeding without collection.")
-  
