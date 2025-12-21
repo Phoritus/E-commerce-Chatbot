@@ -96,16 +96,16 @@ def check_route(user_query: str):
     
     return matched_route.name
 
-if __name__ == "__main__":
-    test_questions = [
-        "How can I return a product?",
-        "Show me Nike shoes with discount",
-        "What is your name?",
-        "Do you have any mobile phones in stock?",
-        "Tell me a joke",
-        "Where can I buy Adidas shirts?"
-    ]
+# if __name__ == "__main__":
+#     test_questions = [
+#         "How can I return a product?",
+#         "Show me Nike shoes with discount",
+#         "What is your name?",
+#         "Do you have any mobile phones in stock?",
+#         "Tell me a joke",
+#         "Where can I buy Adidas shirts?"
+#     ]
 
-    for question in test_questions:
-        route_name = check_route(question)
-        print(f"Question: {question}\nMatched Route: {route_name}\n")
+#     for question in test_questions:
+#         route_name = check_route(question)
+#         print(f"Question: {question}\nMatched Route: {route_name}\n")
