@@ -58,6 +58,7 @@ product_inquiry = Route(
       "Are Adidas shirts popular?",
       "Recommend mobile phones with good reviews.",
       "Which of those is the cheapest?",
+      "What products did you send me previously?",
 
       # Availability (ถามว่ามีของไหม โดยระบุยี่ห้อหรือประเภท)
       "Are Puma shoes in stock?",

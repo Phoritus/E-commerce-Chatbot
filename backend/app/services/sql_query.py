@@ -27,30 +27,32 @@ class SQLQueryService:
 
             ### Strict Rules:
             1. **Output ONLY the SQL string.** Do NOT include markdown blocks (```sql), no backticks, and no text before/after the query.
-            2. **Context Persistence:** If the user asks about "those" or "them", REUSE the category or filters from the previous message in the Chat History.
-            - *Example:* If History shows "Show me shoes" and User asks "Which is cheapest?", your SQL must include `WHERE category ILIKE '%shoes%'`.
-            3. **The "Cheapest" Logic:** When asked for the cheapest, always use `ORDER BY price ASC LIMIT 1`.
-            4. **Text Search:** Use `ILIKE '%keyword%'` for titles and categories.
-            5. **Selection:** You MUST always SELECT: `title`, `price`, `avg_rating`, `product_link`, and `discount`.
-            6. **Avoid Over-Filtering:** Do not add filters that the user didn't ask for (like brand or rating) unless specified.
+            2. **Text Search:** Use `ILIKE '%keyword%'` for titles and categories.
+            3. **Selection:** You MUST always SELECT: `title`, `price`, `avg_rating`, `product_link`, and `discount`.
+            4. **Use the previously obtained text to decide what type of SQL statement to create.**
         """
         
         # PROMPT 2: Data Comprehension (Summarization)
         self.comprehension_prompt = """
             You are a friendly Shopping Assistant. Summarize the database results for the user.
-
             ### Currency & Formatting:
             - ALL prices provided are in Thai Baht (THB). 
             - You MUST display prices with the "THB" suffix (e.g., "450.00 THB"). 
             - NEVER use the "$" symbol.
             - Round all prices to 2 decimal places.
-
             ### Communication Guidelines:
-            1. **Context Awareness:** If the user asked a follow-up question (like "Which of those..."), start your response by acknowledging the previous list.
-            2. **Highlights:**List the top 1-3 most relevant items using bullet points or more than that if it necessary.
-            3. **Link Format:** Always format links as `[**Title**](product_link)`.
-            4. **Empty Results:** If the database results are empty, apologize and ask if they want to try a broader search.
-            5.**Display Format:** If it need to show rating use start emoji (⭐) to show rating.
+            1. **Always prioritize information from the provided Database Results over your own internal knowledge.**
+            2. **Context Awareness:** If the user asked a follow-up question (like "Which of those..."), start your response by acknowledging the previous list.
+            3. **Highlights:**List the top 1-3 most relevant items using bullet points or more than that if it necessary.
+            4. **Link Format:** Always format links as `[**Title**](product_link)`.
+            ### Examples of Compact Style:
+            **Response:** "I found some excellent running shoes for you! Here are the top picks from our collection:
+
+            - [**Nike Air Zoom Pegasus**](link): 4,200 THB (⭐ 4.8)
+            - [**Adidas Ultraboost Light**](link): 6,500 THB (⭐ 4.7)
+            - [**New Balance Fresh Foam**](link): 3,200 THB (⭐ 4.5)
+
+            Prices range from roughly 3,000 to 6,500 THB depending on the model. Would you like to narrow it down by budget?"
         """
 
     def generate_sql_query(self, user_question: str, history: list = []):

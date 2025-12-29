@@ -17,13 +17,14 @@ type Message = {
 
 
 const CHAT_STORAGE_KEY = "chat_history_v1";
+const THREAD_ID_KEY = "chat_thread_id_v1";
 
 
 const formatTime = (ts: number) => {
   const d = new Date(ts);
-  return d.toLocaleTimeString("en-US", { 
-    hour: "2-digit", 
-    minute: "2-digit", 
+  return d.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
     timeZone: "Asia/Bangkok"
   });
 };
@@ -137,6 +138,7 @@ export default function App() {
     setMessages([initial]);
     try {
       localStorage.removeItem(CHAT_STORAGE_KEY);
+      localStorage.removeItem(THREAD_ID_KEY);
     } catch {
       // ignore
     }
@@ -145,7 +147,7 @@ export default function App() {
   const simulateBotReply = (_userText: string) => {
     const loadingId = crypto.randomUUID();
     const axiosInstance = axios.create({
-      baseURL: import.meta.env.VITE_BASE_URL || 'http://localhost:8000',
+      baseURL: 'http://localhost:8000'
     });
 
     // Show loading bubble immediately
@@ -159,9 +161,15 @@ export default function App() {
         createdAt: Date.now(),
       },
     ]);
+    // Get or Create Thread ID
+    let threadId = localStorage.getItem(THREAD_ID_KEY);
+    if (!threadId) {
+      threadId = crypto.randomUUID();
+      localStorage.setItem(THREAD_ID_KEY, threadId);
+    }
 
     // Backend return with markdown formatted reply
-    axiosInstance.post('/api/v1/chat', { question: _userText })
+    axiosInstance.post('/api/v1/chat', { question: _userText, thread_id: threadId })
       .then((res) => {
         const botReply = res.data.answer;
         const repylRendered = (
@@ -276,11 +284,10 @@ function MessageBubble({ msg }: { msg: Message }) {
   return (
     <div className={`flex my-1.5 ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[85%] rounded-2xl border px-3 py-2 shadow-sm ${
-          isUser
-            ? "border-indigo-500/40 bg-indigo-600 text-white"
-            : "border-zinc-800 bg-zinc-900 text-zinc-100"
-        }`}
+        className={`max-w-[85%] rounded-2xl border px-3 py-2 shadow-sm ${isUser
+          ? "border-indigo-500/40 bg-indigo-600 text-white"
+          : "border-zinc-800 bg-zinc-900 text-zinc-100"
+          }`}
       >
         <div className="flex items-baseline justify-between gap-2 text-xs text-zinc-400">
           <span className={isUser ? "text-white/90" : "text-zinc-300"}>
@@ -291,20 +298,20 @@ function MessageBubble({ msg }: { msg: Message }) {
         <div className="mt-1 whitespace-pre-wrap leading-relaxed text-sm">
           {msg.content}
         </div>
-                {msg.type === "loading" ? (
-                  <div className="mt-2 flex justify-end">
-                    <img
-                      src="/loading.svg"
-                      alt="Loading"
-                      className="w-6 h-6 animate-spin-slow"
-                    />
-                  </div>
-                ) : null}
+        {msg.type === "loading" ? (
+          <div className="mt-2 flex justify-end">
+            <img
+              src="/loading.svg"
+              alt="Loading"
+              className="w-6 h-6 animate-spin-slow"
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );
 }
 
 // Removed TypingDots in favor of loading.svg spinner
- 
+
 

@@ -25,4 +25,5 @@ dependencies = [
   "langchain-groq>=1.1.1",
   "langgraph-checkpoint-postgres>=3.0.2",
   "psycopg[binary,pool]>=3.3.2",
+  "langchain-google-genai>=4.1.2",
 ]

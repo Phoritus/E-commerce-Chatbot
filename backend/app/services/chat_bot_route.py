@@ -1,63 +1,88 @@
-from app.services.router_search import check_route
-from app.services.sql_query import SQLQueryService
-from app.db.postgresdb import get_db
-from app.services.chat_bot_service import ChatBotService
-from app.services.small_talk import SmallTalkService
-from app.models.chat_bot_model import ChatBotState, ChatBotRequest
-
+from typing import List, Literal
+from langchain.chat_models import init_chat_model
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import HumanMessage, AIMessage
 
-# Determine the route based on the *latest* user message
+from app.core.config import google_config
+from app.db.postgresdb import get_db
+from app.models.chat_bot_model import ChatBotState, ChatBotRequest, RouterDecision
+from app.services.router_search import check_route
+from app.services.sql_query import SQLQueryService
+from app.services.chat_bot_service import ChatBotService
+from app.services.small_talk import SmallTalkService
+
+# 1. PRE-INITIALIZE MODELS & SERVICES (Optimal Way)
+# Initialize models once globally to avoid overhead
+BASE_LLM = init_chat_model(
+    model="google_genai:gemini-2.0-flash",
+    api_key=google_config.GOOGLE_API_KEY,
+    temperature=0.2
+)
+
+# Initialize Services once (Ingest FAQ data once at startup, not per request)
+FAQ_SERVICE = ChatBotService()
+FAQ_SERVICE.ingest_faq_data() 
+SMALL_TALK_SERVICE = SmallTalkService()
+
+# Create the structured router LLM
+ROUTER_LLM = BASE_LLM.with_structured_output(RouterDecision)
+
+# 2. OPTIMIZED NODES
+
 def router_node(state: ChatBotState):
-    # Get the last message (Human Message)
-    last_message = state["messages"][-1]
-    question = last_message.content
-    print(f"Router checking question: {question}")
+    """Semantic Router first (Fast), LLM with History second (Smart)."""
+    messages = state["messages"]
+    last_message = messages[-1].content
     
-    route_name = check_route(question)
+    # Fast path: Semantic Router (No cost, high speed)
+    route_name = check_route(last_message)
+    
+    # Fallback path: LLM with Context (Handles "Those/It/Cheapest")
+    if route_name is None:
+        print(f"--- Semantic Router ambiguous. Calling LLM Fallback ---")
+        # Optimization: Pass history so LLM knows what "Those" refers to
+        decision = ROUTER_LLM.invoke(messages)
+        # Handle both dict and pydantic object return types
+        route_name = decision.route if hasattr(decision, 'route') else decision["route"]
+    
+    print(f"--- Route Decision: {route_name} ---")
     return {"destination": route_name}
 
 def route_decision(state: dict):
     return state["destination"]
 
-# Node wrapper functions that conform to StateGraph signature
 def faq_node(state: ChatBotState):
-    question = state["messages"][-1].content
-    history = state["messages"][:-1] # get history without current question
-    chat_bot_service = ChatBotService()
-    chat_bot_service.ingest_faq_data()
-    # Pass history to service
-    answer = chat_bot_service.get_faq_answer(question, history)
+    # History is already managed by state["messages"]
+    answer = FAQ_SERVICE.get_faq_answer(
+        state["messages"][-1].content, 
+        state["messages"][:-1]
+    )
     return {"messages": [AIMessage(content=answer)]}
 
 def product_inquiry_node(state: ChatBotState):
-    question = state["messages"][-1].content
-    history = state["messages"][:-1]
     with get_db() as db:
+        # Pass the pre-existing DB session
         sql_service = SQLQueryService(db=db)
-        # We don't need to generate query separately here if sql_chain does it.
-        # But if we want to print it for debugging, we can.
-        # However, sql_chain generates it again internally. 
-        # For efficiency, we should rely on sql_chain OR split it up. 
-        # Given current sql_chain implementation, let's just call sql_chain with history.
-        
-        answer = sql_service.sql_chain(question, history)
+        # sql_chain handles the SQL generation and summarization internally
+        answer = sql_service.sql_chain(
+            state["messages"][-1].content, 
+            state["messages"][:-1]
+        )
         return {"messages": [AIMessage(content=answer)]}
 
 def small_talk_node(state: ChatBotState):
-    question = state["messages"][-1].content
-    history = state["messages"][:-1]
-    small_talk_service = SmallTalkService()
-    # Pass history
-    answer = small_talk_service.get_response(question, history)
+    answer = SMALL_TALK_SERVICE.get_response(
+        state["messages"][-1].content, 
+        state["messages"][:-1]
+    )
     return {"messages": [AIMessage(content=answer)]}
 
 def default_node(state: ChatBotState):
-    return {"messages": [AIMessage(content="Sorry, I cannot handle this type of question yet.")]}
+    return {"messages": [AIMessage(content="I'm sorry, I couldn't categorize your request. How can I help?")]}
 
-# Build the graph
+# 3. GRAPH CONSTRUCTION
+
 builder = StateGraph(ChatBotState)
 
 builder.add_node("router", router_node)
@@ -67,7 +92,6 @@ builder.add_node("small_talk", small_talk_node)
 builder.add_node("default", default_node)
 
 builder.add_edge(START, "router")
-
 builder.add_conditional_edges(
     "router",
     route_decision,
@@ -75,41 +99,33 @@ builder.add_conditional_edges(
         "faq": "faq",
         "product_inquiry": "product_inquiry",
         "small_talk": "small_talk",
-        "default": "default"  # Assuming check_route might return something else or we can handle fallback
+        "default": "default"
     }
 )
+
 builder.add_edge("faq", END)
 builder.add_edge("product_inquiry", END)
 builder.add_edge("small_talk", END)
 builder.add_edge("default", END)
 
-# Initialize Checkpointer
-memory_checkpointer = MemorySaver()
+# Persistence
+memory = MemorySaver()
+graph = builder.compile(checkpointer=memory)
 
-# Compile the graph
-graph = builder.compile(checkpointer=memory_checkpointer)
+# 4. API ENTRY POINT
 
 def chat_bot_route(request: ChatBotRequest):
     try:
-        print(f"Processing request for thread_id: {request.thread_id}")
-        
-        # Prepare input state
-        initial_state = {
-            "messages": [HumanMessage(content=request.question)]
-        }
-        
-        # Invoke graph with config for persistence
+        # thread_id ensures MemorySaver loads the correct history
         config = {"configurable": {"thread_id": request.thread_id}}
         
-        # Run!
-        result = graph.invoke(initial_state, config=config)
+        # LangGraph automatically merges this HumanMessage with previous history in MemorySaver
+        initial_state = {"messages": [HumanMessage(content=request.question)]}
         
-        # Extract the final answer (last message)
-        final_answer = result["messages"][-1].content
-        return final_answer
+        result = graph.invoke(initial_state, config=config)
+        return result["messages"][-1].content
 
     except Exception as e:
         import traceback
-        error_msg = traceback.format_exc()
-        print(f"Error in chat_bot_route: {error_msg}")
-        return f"An error occurred: {str(e)}"
+        print(f"Error in chat_bot_route: {traceback.format_exc()}")
+        return f"I encountered an error. Please try again or rephrase your question."
