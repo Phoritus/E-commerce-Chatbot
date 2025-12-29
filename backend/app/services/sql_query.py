@@ -1,153 +1,116 @@
 from app.core.config import groq_config
-from app.db.postgresdb import dbSession
 
-from groq import Groq
+from langchain_groq import ChatGroq
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 import pandas as pd
+from langchain_core.messages import SystemMessage, HumanMessage
 
 
 class SQLQueryService:
-    def __init__(self, db: dbSession):
+    def __init__(self, db: Session):
         self._db = db
-        self._client_groq = Groq(
-            api_key=groq_config.GROQ_API_KEY,          
-        )
-        
-        self.sql_prompt = """
-            You are an expert PostgreSQL Database Administrator and Data Analyst.
-            Your task is to generate accurate and efficient PostgreSQL queries based on natural language requests.
-
-            ### Database Schema
-            Table Name: public.amazon_product_data
-
-            Columns:
-            - id (BIGINT, PRIMARY KEY): Unique identifier for the product.
-            - product_link (TEXT): URL link to the product.
-            - title (TEXT): Name/Title of the product.
-            - brand (TEXT): Brand name.
-            - discount (DOUBLE PRECISION): Discount percentage (e.g., 0.15 for 15%).
-            - avg_rating (DOUBLE PRECISION): Average customer rating (0-5).
-            - total_ratings (INTEGER): Number of ratings.
-            - availability (TEXT): Stock status description (e.g., 'In Stock', or NULL).
-            - category (TEXT): Product category.
-            - price (DOUBLE PRECISION): Product price in THB.
-
-            ### Guidelines
-            1. **Dialect:** Use standard PostgreSQL syntax.
-            2. **Text Search:** Use `ILIKE` for case-insensitive string matching.
-            3. **Null Handling:** Use `IS NOT NULL` or `COALESCE` where appropriate.
-            4. **Mandatory Columns:** For any query that retrieves product rows, **YOU MUST ALWAYS INCLUDE** `product_link`, `discount`, `price` and `avg_rating` in the `SELECT` clause, along with other requested columns.
-            5. **Optimization:** Always include `LIMIT 100` unless aggregation is requested.
-            6. **Output Format (CRITICAL):** - Return **ONLY** the raw SQL query.
-               - **DO NOT** use markdown backticks (```sql or ```).
-               - **DO NOT** output JSON.
-               - **DO NOT** add any explanation or conversational text.
-               - The output must be ready to execute directly in a `db.execute()` function.
-
-            ### Examples
-
-            User: "ขอสินค้าที่มี rating มากกว่า 4.5 และราคาไม่เกิน 1000 บาท"
-            Assistant: SELECT title, price, avg_rating, total_ratings, product_link, discount FROM public.amazon_product_data WHERE avg_rating > 4.5 AND price <= 1000 ORDER BY avg_rating DESC LIMIT 100;
-
-            User: "นับจำนวนสินค้าแยกตามหมวดหมู่"
-            Assistant: SELECT category, COUNT(*) AS product_count FROM public.amazon_product_data WHERE availability IS NOT NULL GROUP BY category ORDER BY product_count DESC;
-        """
-       
-        self.comprehension_prompt = """
-            You are a friendly and knowledgeable Personal Shopping Assistant (English Language).
-            You will receive the **TOP 5** matching products from a larger database search.
-            Your goal is to present these top picks naturally and summarize the options.
-
-            ### Data Format Explanation:
-            The data is a list of top-ranked products containing: 'title', 'price' (THB), 'avg_rating', 'total_ratings', 'brand', and optionally 'product_link'.
-
-            ### Critical Rules for Links:
-            - **IF 'product_link' exists:** Format as `[**Title**](URL)`.
-            - **IF 'product_link' is missing:** Format as `**Title**`.
-
-            ### Response Guidelines (Summary Style):
-            1. **Tone:** Conversational, warm, and concise. Avoid listing data fields robotically.
-            2. **The Highlight:** select the 3 most interesting items to display as bullet points.
-            - Format: "- [Link/Title] - [Price] THB (⭐ [Rating])"
-            3. **Price Overview:** Briefly mention the price range (e.g., "Prices for these start around 1,200 THB...").
-            4. **Closing:** Ask if they want to see more details or specific brands.
-
-            ### Example Scenario:
-            User: "Show me running shoes"
-            Data: [List of 5 shoe objects...]
-            
-            **Response:** "I found some excellent running shoes for you! Here are the top picks from our collection:
-            
-            - [**Nike Air Zoom Pegasus**](https://...): 4,200 THB (⭐ 4.8)
-            - [**Adidas Ultraboost Light**](https://...): 6,500 THB (⭐ 4.7)
-            - **New Balance Fresh Foam**: 3,200 THB (⭐ 4.5)
-            
-            Prices range from roughly 3,000 to 6,500 THB depending on the model. Would you like to narrow it down by budget?"
-        """
-        
-    def generate_sql_query(self, user_question: str):
-        response = self._client_groq.chat.completions.create(
+        self._client_groq = ChatGroq(
+            api_key=groq_config.GROQ_API_KEY,
             model="openai/gpt-oss-20b",
-            messages=[
-                {
-                    "role": "system",
-                    "content": self.sql_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": user_question,
-                }
-            ],
             temperature=0.2,
+            model_kwargs={"stream": False}
         )
-        return response.choices[0].message.content
-    
         
+        # PROMPT 1: SQL Generation (Context-Aware)
+        self.sql_prompt = """
+            You are a PostgreSQL expert. Generate a raw SQL query based on the user's question and Chat History.
+
+            ### Schema:
+            Table: public.amazon_product_data
+            Columns: id, product_link, title, brand, discount, avg_rating, total_ratings, availability, category, price
+
+            ### Strict Rules:
+            1. **Output ONLY the SQL string.** Do NOT include markdown blocks (```sql), no backticks, and no text before/after the query.
+            2. **Context Persistence:** If the user asks about "those" or "them", REUSE the category or filters from the previous message in the Chat History.
+            - *Example:* If History shows "Show me shoes" and User asks "Which is cheapest?", your SQL must include `WHERE category ILIKE '%shoes%'`.
+            3. **The "Cheapest" Logic:** When asked for the cheapest, always use `ORDER BY price ASC LIMIT 1`.
+            4. **Text Search:** Use `ILIKE '%keyword%'` for titles and categories.
+            5. **Selection:** You MUST always SELECT: `title`, `price`, `avg_rating`, `product_link`, and `discount`.
+            6. **Avoid Over-Filtering:** Do not add filters that the user didn't ask for (like brand or rating) unless specified.
+        """
+        
+        # PROMPT 2: Data Comprehension (Summarization)
+        self.comprehension_prompt = """
+            You are a friendly Shopping Assistant. Summarize the database results for the user.
+
+            ### Currency & Formatting:
+            - ALL prices provided are in Thai Baht (THB). 
+            - You MUST display prices with the "THB" suffix (e.g., "450.00 THB"). 
+            - NEVER use the "$" symbol.
+            - Round all prices to 2 decimal places.
+
+            ### Communication Guidelines:
+            1. **Context Awareness:** If the user asked a follow-up question (like "Which of those..."), start your response by acknowledging the previous list.
+            2. **Highlights:**List the top 1-3 most relevant items using bullet points or more than that if it necessary.
+            3. **Link Format:** Always format links as `[**Title**](product_link)`.
+            4. **Empty Results:** If the database results are empty, apologize and ask if they want to try a broader search.
+            5.**Display Format:** If it need to show rating use start emoji (⭐) to show rating.
+        """
+
+    def generate_sql_query(self, user_question: str, history: list = []):
+        """Generates a PostgreSQL query based on user input and conversation history."""
+        messages = [SystemMessage(content=self.sql_prompt)]
+        
+        # Inject history so the LLM knows what was searched previously
+        messages.extend(history) 
+        messages.append(HumanMessage(content=user_question))
+        
+        response = self._client_groq.invoke(messages)
+        return response.content.strip()
+
     def run_sql_query(self, sql_query: str):
-        result = self._db.execute(text(sql_query))
-        data = result.fetchall()
-        df = pd.DataFrame(data, columns=result.keys())
-        return df
-    
-    def data_comprehension(self, user_question: str, data: pd.DataFrame):
-        data_list = data.to_dict(orient='records')
-        # cut off size if too large
-        if (len(data_list) >= 100):
-            data_list = data_list[:10]
+        """Executes the generated SQL query and returns a Pandas DataFrame."""
+        try:
+            result = self._db.execute(text(sql_query))
+            data = result.fetchall()
+            return pd.DataFrame(data, columns=result.keys())
+        except Exception as e:
+            print(f"SQL Execution Error: {e}")
+            return pd.DataFrame()
+
+    def data_comprehension(self, user_question: str, data: pd.DataFrame, history: list = []):
+        """Converts raw database rows into a natural language response."""
+        data_list = data.to_dict(orient='records')[:10] # Limit to top 10 for context window
         
-        response = self._client_groq.chat.completions.create(
-            model="openai/gpt-oss-20b",
-            messages=[
-                {
-                    "role": "system",
-                    "content": self.comprehension_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": f"User Question: {user_question}\nDatabase Results: {data_list}",
-                }
-            ],
-            temperature=0.3,
-        )
-        return response.choices[0].message.content
-    
-    def sql_chain(self, user_question: str):
-        sql_query = self.generate_sql_query(user_question)
+        messages = [SystemMessage(content=self.comprehension_prompt)]
+        messages.extend(history) # Let the assistant remember what it said before
+        
+        context_query = f"User Question: {user_question}\nDatabase Results: {data_list}"
+        messages.append(HumanMessage(content=context_query))
+        
+        response = self._client_groq.invoke(messages, temperature=0.3)
+        return response.content
+
+    def sql_chain(self, user_question: str, history: list = []):
+        """Main entry point: Question -> SQL -> Data -> Answer."""
+        # 1. Generate SQL (Looking at history to handle 'those/them')
+        sql_query = self.generate_sql_query(user_question, history)
+        
+        # 2. Execute SQL
         result_df = self.run_sql_query(sql_query)
-        answer = self.data_comprehension(user_question, result_df)
-        return answer
-    
-    
         
+        if result_df.empty:
+            return "I'm sorry, I couldn't find any products matching that request right now."
+
+        # 3. Formulate Answer (Looking at history to stay consistent)
+        answer = self.data_comprehension(user_question, result_df, history)
+        return answer
+
 
 # if __name__ == "__main__":
-#     test = SQLQueryService(db=next(get_db()))
-#     question = "Do you have shirts product in stock?"
-#     sql_query = test.generate_sql_query(question)
-#     print(sql_query)
-    
-#     res = test.run_sql_query(sql_query)
-#     print(res)
-    
-#     answer = test.data_comprehension(question, res)
-#     print(answer)
+#     with get_db() as db:
+#         test = SQLQueryService(db)
+#         question = "Do you have shirts product in stock?"
+#         sql_query = test.generate_sql_query(question)
+#         print(sql_query)
+#         # sql_query = """SELECT * FROM public.amazon_product_data ORDER BY id ASC"""
+#         res = test.run_sql_query(sql_query)
+#         print(res)
+#         answer = test.data_comprehension(question, res)
+#         print(answer)

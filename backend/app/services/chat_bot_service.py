@@ -5,7 +5,8 @@ from pathlib import Path
 from uuid import uuid4
 from functools import lru_cache
 import pandas as pd
-from groq import Groq
+from langchain_groq import ChatGroq 
+from langchain_core.messages import SystemMessage, HumanMessage
 import time
 
 
@@ -86,7 +87,7 @@ class ChatBotService:
       log_event("query.cache.hit", query=query)
     return result
     
-  def get_faq_answer(self, query: str):
+  def get_faq_answer(self, query: str, history: list = []):
     """Return an answer to the user query using Groq LLM with RAG context from Chroma.
 
     Falls back gracefully if GROQ_API_KEY is missing.
@@ -96,7 +97,13 @@ class ChatBotService:
       logger.error("GROQ_API_KEY not set; cannot call Groq API.")
       return "Configuration error: GROQ_API_KEY is missing."
     
-    client_groq = Groq(api_key=groq_key)
+    client_groq = ChatGroq(
+      api_key=groq_key,
+      model="meta-llama/llama-4-maverick-17b-128e-instruct",
+      temperature=0.3,
+      max_tokens=512,
+      model_kwargs={"stream": False}
+    )
 
     # Retrieve top FAQ documents for context
     rag_results = self.query_faq_data_cached(query, n_results=5)
@@ -104,6 +111,10 @@ class ChatBotService:
     metadatas = rag_results.get("metadatas", [[]])[0]
 
     # 1) If we already have a direct answer in metadata, return it immediately (highest precision)
+    # Note: If history is present, we might want to skip this generic short-circuit 
+    # OR we assume the new query is specific enough. 
+    # Let's keep it for fast responses but only if no high priority history context? 
+    # For now, keep as is.
     try:
       for meta in metadatas:
         if isinstance(meta, dict):
@@ -131,7 +142,9 @@ class ChatBotService:
       "You are an e-commerce support assistant. Use ONLY the provided context to answer. "
       "If the answer is not in the context, say you don't have that information yet."
     )
-    user_prompt = (
+    # We will pass history as messages, so we don't need to bake query into user_prompt string as the ONLY thing.
+    
+    user_prompt_content = (
       "Context containing Q/A pairs from knowledge base:\n"
       f"{context_text}\n\n"
       f"User question: {query}\n\n"
@@ -139,22 +152,20 @@ class ChatBotService:
     )
 
     try:
-      completion = client_groq.chat.completions.create(
-        model="meta-llama/llama-4-maverick-17b-128e-instruct",
-        messages=[
-          {"role": "system", "content": system_prompt},
-          {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.3,
-        max_tokens=512,
-        stream=False,
-      )
-      answer = completion.choices[0].message.content.strip()
+      messages = [SystemMessage(content=system_prompt)]
+      
+      # Add history
+      messages.extend(history)
+      
+      # Add current turn with context
+      messages.append(HumanMessage(content=user_prompt_content))
+
+      completion = client_groq.invoke(messages)
+      answer = completion.content
       return answer
     except Exception as e:
       logger.error("Groq API error: %s", str(e))
       return f"Groq API call failed: {e}"
-    
 
 # if __name__ == "__main__":
 #   log_event("main.start")

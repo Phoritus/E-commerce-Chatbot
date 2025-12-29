@@ -7,5 +7,5 @@ router = APIRouter()
 
 @router.post("/chat", response_model=ChatBotResponse)
 async def chat_bot_endpoint(request: ChatBotRequest):
-    answer = chat_bot_route(request.question)
+    answer = chat_bot_route(request)
     return ChatBotResponse(answer=answer)

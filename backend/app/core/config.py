@@ -17,6 +17,10 @@ class GroqConfig(BaseSettings):
     GROQ_API_KEY: str | None = None
     project_id: str | None = None
 
+class GoogleConfig(BaseSettings):
+    GOOGLE_API_KEY: str | None = None
+
 groq_config = GroqConfig()
+google_config = GoogleConfig()
 chroma_config = ChromaConfig()
 config = Config()
