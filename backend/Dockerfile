@@ -12,7 +12,6 @@ RUN uv sync --locked
 
 ENV PATH="/app/.venv/bin:${PATH}"
 
-EXPOSE 80
+EXPOSE 8000
 
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "80"]
+CMD [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000" ]

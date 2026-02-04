@@ -81,7 +81,7 @@ Copy `.env.example` to `.env` and fill in the required API keys.
 ```bash
 cp .env.example .env
 ```
-*Required keys*: `GROQ_API_KEY`, `GOOGLE_API_KEY`, `DATABASE_URL`.
+*Required keys*: `DATABASE_URL`, `GROQ_API_KEY`, `GOOGLE_API_KEY`. *Optional*: `CHROMA_API_KEY`, `CHROMA_TENANT` (for cloud ChromaDB).
 
 Run the backend server:
 ```bash

@@ -1,5 +1,5 @@
 from semantic_router import Route
-from semantic_router.encoders import HuggingFaceEncoder
+from semantic_router.encoders import FastEmbedEncoder
 from semantic_router.routers import SemanticRouter
 
 
@@ -80,9 +80,7 @@ product_inquiry = Route(
 
 router = SemanticRouter(
     routes=[faq, product_inquiry, small_talk],
-    encoder=HuggingFaceEncoder(
-      name="sentence-transformers/all-mpnet-base-v2"
-    ),
+    encoder=FastEmbedEncoder(),
     auto_sync="local"
 )
 
