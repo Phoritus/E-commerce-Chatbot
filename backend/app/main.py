@@ -17,7 +17,8 @@ from app.components.html_content import HTML_CONTENT
 
 
 origin = [
-    "http://localhost:5173"
+    "http://localhost:5173",
+    "https://e-commerce-chatbot-kappa.vercel.app"
 ]
 
 # Initialize the limiter (using IP address as the key)
