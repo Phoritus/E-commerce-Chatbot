@@ -2,6 +2,10 @@
 
 An intelligent E-commerce Chatbot designed to assist users with product queries, using **LangGraph** for orchestrating multi-turn conversations, RAG (Retrieval-Augmented Generation), and hybrid semantic routing.
 
+## 🌐 Live Demo
+
+**[Try the Prototype Chatbot](https://e-commerce-chatbot-kappa.vercel.app)**
+
 ## System Architecture
 
 ![Architecture Diagram](backend/app/resources/architecture-diagram.jpg)
