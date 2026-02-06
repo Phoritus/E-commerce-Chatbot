@@ -42,7 +42,7 @@ export default function HomePage() {
 
   const categories = [
     { name: "📱 Mobile Phones", query: "Show me the best mobile phones" },
-    { name: "👟 Shoes", query: "What shoes do you have?" },
+    { name: "👟 Shoes", query: "Do you have shoes?" },
     { name: "👔 Shirts", query: "Show me some shirts" },
     { name: "⌚ Watches", query: "I'm looking for watches" },
     { name: "📷 Cameras", query: "Show me cameras" }
