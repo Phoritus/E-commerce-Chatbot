@@ -10,6 +10,7 @@ engine = create_engine(
     config.DATABASE_URL,
     echo=False,
     future=True,
+    pool_pre_ping=True,
 )
 session = sessionmaker(
     bind=engine,

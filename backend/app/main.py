@@ -13,7 +13,7 @@ from app.components.html_content import HTML_CONTENT
 
 
 # Create database tables
-#Base.metadata.create_all(bind=postgresdb.engine)
+# Base.metadata.create_all(bind=postgresdb.engine)
 
 
 origin = [
@@ -40,6 +40,10 @@ app.add_middleware(
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     return HTML_CONTENT
+
+@app.get("/ping")
+async def ping():
+    return {"status": "ok"}
 
 # Register API routers
 app.include_router(chat_bot_api.router, prefix="/api/v1")

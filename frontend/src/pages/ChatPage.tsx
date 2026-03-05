@@ -33,7 +33,7 @@ const formatTime = (ts: number) => {
 export default function ChatPage() {
   const [searchParams] = useSearchParams();
   const initialQuery = searchParams.get('q');
-  
+
   const [messages, setMessages] = useState<Message[]>(() => {
     try {
       const raw = localStorage.getItem(CHAT_STORAGE_KEY);
@@ -104,6 +104,14 @@ export default function ChatPage() {
     isSending,
   ]);
 
+  // Pre-warm: silently ping the backend so it wakes up while the user is reading
+  useEffect(() => {
+    const baseURL = import.meta.env.VITE_BASE_URL || 'http://localhost:8000';
+    axios.get(`${baseURL}/ping`).catch(() => {
+      // ignore – this is a best-effort wake-up call
+    });
+  }, []);
+
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
@@ -123,7 +131,7 @@ export default function ChatPage() {
       setMessages([initial]);
       localStorage.removeItem(CHAT_STORAGE_KEY);
       localStorage.removeItem(THREAD_ID_KEY);
-      
+
       // Send the initial query after a short delay
       setTimeout(() => {
         setInput(initialQuery);
@@ -264,8 +272,8 @@ export default function ChatPage() {
         <header className="border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-sm">
           <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-4 py-3">
             <div className="flex items-center gap-3">
-              <Link 
-                to="/" 
+              <Link
+                to="/"
                 className="p-1.5 rounded-lg hover:bg-zinc-800 transition-colors"
                 title="Back to Home"
               >
